@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <style>
+            body {
+            }
+            canvas {
+                width: 800;
+                height: 600;
+            }
+            #the-canvas { border: 1px solid darkblue; }
+            #user-matrix input { width: 64px; font-size: 24px; }
+        </style>
+    </head>
+
+    <link rel="shortcut icon" href="#">
+
+    <body>
+        <canvas id = "the-canvas" width = "800" height = "600"></canvas>
+        <!-- <script src = "programs.js"></script> -->
+        <script src = "lib.js"></script>
+        <script src = "node.js"></script>
+        <script src = "render.js"></script>
+        <script src = "vector.js"></script>
+        <script src = "matrix.js"></script>
+        <script src = "normal_mesh.js"></script>
+        <script src = "controls.js"></script>
+        <script src = "cam.js"></script>
+        <script src = "lit_material.js"></script>
+        <script src = "light.js"></script>
+        <script src = "shader.js"></script>
+        <script>
+            let canvas = document.getElementById( 'the-canvas' );
+            /** @type {WebGLRenderingContext} */
+            let gl = canvas.getContext( 'webgl2' );
+
+            // shaders are in shader.js file
+            let lit_program =
+                create_compile_and_link_program(
+                    gl,
+                    PHONG_VERTEX_SHADER, /* GOURAUD_VERTEX_SHADER, */
+                    PHONG_FRAGMENT_SHADER, /* GOURAUD_FRAGMENT_SHADER */
+                );
+
+            gl.useProgram( lit_program );
+
+            set_render_params( gl );
+
+            let last_update = performance.now();
+
+            const DESIRED_TICK_RATE = 60;
+            const DESIRED_MSPT = 1000.0 / DESIRED_TICK_RATE;
+
+            const ROTATION_SPEED = 0.125;
+            const ROTATION_SPEED_PER_FRAME = ROTATION_SPEED / DESIRED_TICK_RATE;
+
+            const FLY_SPEED = 1.5;    // units per second
+            const FLY_SPEED_PER_FRAME = FLY_SPEED / DESIRED_TICK_RATE;
+
+            let keys = Keys.start_listening();
+            let cam = new Camera();
+            cam.translate( 0, 0, -5 );
+
+            let marble =
+                new LitMaterial( gl, 'tex/White-Marble-Architextures.jpg', gl.LINEAR, 0.25, 1, 2, 4 );
+
+            let sun_dir = ( new Vec4( 1.0, 0.0, 0.0, 0.0 ) ).norm();
+            let sun = new Light( sun_dir.x, sun_dir.y, sun_dir.z, 1.0, 0.95, 0.85, 0 );
+            let light1 = new Light( -9, -9, 0.0, 1.0, 0.2, 0.2, 1 );
+
+            let mesh =
+                //NormalMesh.uv_sphere( gl, lit_program, 1, 16, marble );
+                NormalMesh.box( gl, lit_program, 1, 1, 1, marble );
+                // NormalMesh.marchingCubes(gl, lit_program, 40, 0.5, 12, rock);
+
+            let projection = Mat4.perspective_fovx( 0.125, 4 / 3, 0.125, 1024 );
+            let current_program = lit_program;
+
+            function render( now ) {
+                requestAnimationFrame( render );
+                let time_delta = ( now - last_update ) / 1000;
+                last_update = now;
+
+                gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+
+                // we're using world-space lighting, so it's okay to combine projection
+                // and model-view like this.
+
+                let model = Mat4.translation( 0, 0, 0 );
+                let view = cam.get_view_matrix();
+                let modelview = view.mul( model );
+
+                set_uniform_matrix4( gl, current_program, 'projection', projection.data );
+                set_uniform_matrix4( gl, current_program, 'modelview', modelview.data );
+                set_uniform_matrix4( gl, current_program, 'model', model.data );
+                set_uniform_matrix4( gl, current_program, 'view', view.data );
+
+                // transform viewer coordinates
+                set_uniform_vec3( gl, current_program, 'viewer_loc', cam.x, cam.y, cam.z );
+
+                // bind lights
+                sun.bind( gl, current_program, modelview );
+                light1.bind( gl, current_program, modelview );
+
+                // render the mesh
+                mesh.render( gl );
+
+                // render the rest of the scene...
+                jobs = [];
+                lights = [];
+
+                for (let light of lights) {
+                    if( light.num == 0 ) { // this is the sun
+                        set_uniform_vec3( gl, current_program, 'sun_dir', light.loc.x, light.loc.y, light.loc.z );
+                        set_uniform_vec3( gl, current_program, 'sun_color', light.color[0], light.color[1], light.color[2] );
+                    }
+                    else {
+                        set_uniform_vec3(
+                            gl, current_program,
+                            'light' + light.num + '_loc',
+                            light.loc.x, light.loc.y, light.loc.z
+                        );
+
+                        set_uniform_vec3(
+                            gl, current_program,
+                            'light' + light.num + '_color',
+                            light.color[0], light.color[1], light.color[2]
+                        );
+                    }
+                }
+
+                for (let job of jobs) {
+                    let job_modelview = view.mul(job.matrix);
+                    set_uniform_matrix4( gl, current_program, 'modelview', job_modelview.data );
+                    set_uniform_matrix4( gl, current_program, 'model', job.matrix.data );
+                    job.mesh.render(gl);
+                }
+            }
+
+            const KEYMAP = {
+                'KeyW': function() { cam.move_in_direction( 0, 0, FLY_SPEED_PER_FRAME ); },
+                'KeyS': function() { cam.move_in_direction( 0, 0, -FLY_SPEED_PER_FRAME ); },
+                'KeyA': function() { cam.move_in_direction( -FLY_SPEED_PER_FRAME, 0, 0 ); },
+                'KeyD': function() { cam.move_in_direction( FLY_SPEED_PER_FRAME, 0, 0 ); },
+                'Space': function() { cam.translate( 0, FLY_SPEED_PER_FRAME, 0 ); },
+                'KeyC': function() { cam.translate( 0, -FLY_SPEED_PER_FRAME, 0 ); },
+                'KeyQ': function() { cam.add_roll( -ROTATION_SPEED_PER_FRAME ); },
+                'KeyE': function() { cam.add_roll( ROTATION_SPEED_PER_FRAME ); },
+                'ArrowLeft': function() { cam.add_yaw( -ROTATION_SPEED_PER_FRAME ); },
+                'ArrowRight': function() { cam.add_yaw( ROTATION_SPEED_PER_FRAME ); },
+                'ArrowDown': function() { cam.add_pitch( -ROTATION_SPEED_PER_FRAME ); },
+                'ArrowUp': function() { cam.add_pitch( ROTATION_SPEED_PER_FRAME ); },
+            };
+
+            function pContains(arr, arrSize, x, y, z) {
+                for (let i = 0; i < arrSize; i++) {
+                    if (arr[i].x == x && arr[i].y == y && arr[i].z == z) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function update() {
+                let keys_down = keys.keys_down_list();
+
+                for( const key of keys_down ) {
+                   let bound_function = KEYMAP[ key ];
+
+                   if( bound_function ) {
+                       bound_function();
+                   }
+                }
+            }
+
+            requestAnimationFrame( render );
+            setInterval( update, DESIRED_MSPT );
+        </script>
+    </body>
+</html>

@@ -7,6 +7,9 @@
             canvas {
                 width: 800;
                 height: 600;
+                padding: 0;
+                margin: auto;
+                display: block;
             }
             #the-canvas { border: 1px solid darkblue; }
             #user-matrix input { width: 64px; font-size: 24px; }
@@ -16,6 +19,7 @@
     <link rel="shortcut icon" href="#">
 
     <body>
+        <h1 style="text-align: center;"> Cool WebGL Thing by Kevin </h1>
         <canvas id = "the-canvas" width = "800" height = "600"></canvas>
         <!-- <script src = "programs.js"></script> -->
         <script src = "lib.js"></script>
@@ -176,5 +180,12 @@
             requestAnimationFrame( render );
             setInterval( update, DESIRED_MSPT );
         </script>
+
+        <p style="text-align: center;">
+            Can be run locally by starting a local server with `python -m http.server` within this directory
+        </p>
+        <p style="text-align: center;">
+            Majority of this code was based on a final project for CS 442: Computer Graphics which can be found here: https://github.com/KevinMKinney/CS442-TermProject
+        </p>
     </body>
 </html>
